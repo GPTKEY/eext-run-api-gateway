@@ -488,6 +488,7 @@ async function scanAndConnect(): Promise<void> {
 function tryConnectToPort(port: number, sessionId: number): Promise<boolean> {
 	return new Promise((resolve) => {
 		let settled = false;
+		let accepted = false;
 		let timer: ReturnType<typeof setTimeout> | null = null;
 
 		const settle = (success: boolean, reason: string): void => {
@@ -531,11 +532,16 @@ function tryConnectToPort(port: number, sessionId: number): Promise<boolean> {
 					try {
 						const msg = JSON.parse(String(event.data)) as BridgeMessage;
 						if (msg.type === 'handshake') {
+							// 单端口握手超时后必须忽略迟到 handshake，防止污染下一端口。
+							if (settled) {
+								return;
+							}
 							if (msg.service !== SERVICE_ID) {
 								settle(false, `unexpected service: ${String(msg.service)}`);
 								return;
 							}
 
+							accepted = true;
 							handshakeVerified = true;
 							windowId = crypto.randomUUID();
 							eda.sys_WebSocket.send(WS_ID, JSON.stringify({
@@ -547,7 +553,7 @@ function tryConnectToPort(port: number, sessionId: number): Promise<boolean> {
 							return;
 						}
 
-						if (!handshakeVerified) {
+						if (!accepted || !handshakeVerified) {
 							return;
 						}
 						await handleMessage(msg);
